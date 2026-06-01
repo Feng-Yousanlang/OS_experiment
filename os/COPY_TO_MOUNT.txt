@@ -1,0 +1,20 @@
+实验2 完整 os 工程（相对挂载根目录）
+
+你本机路径（示例）：
+  c:\Users\95149\Downloads\OSexperiment\os\
+
+复制方式（二选一）：
+1) 用资源管理器：把该 os 文件夹里的所有内容，覆盖复制到你 Docker 挂载里对应的 os 目录（与 /mnt/os 对应）。
+2) 若你只想替换源码与配置：至少复制 .cargo、src、Cargo.toml、Makefile 到挂载的 os 下。
+
+与 os 同级仍需：
+  bootloader/opensbi.bin   （老师给的固件）
+
+容器内（在 os 目录）：
+  source "$HOME/.cargo/env"
+  cargo build --release
+  或：make run
+
+说明：Makefile 里已默认 SBI=opensbi，对应 ../bootloader/opensbi.bin。
+
+若编译提示 panic_info_message 或 PanicInfo::message 相关错误，多半是 nightly 版本差异，把本机 rust-toolchain 与实验环境对齐后再编。

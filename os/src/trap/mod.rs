@@ -2,7 +2,6 @@ mod context;
 
 use core::arch::global_asm;
 
-use crate::batch::run_next_app;
 use crate::syscall::syscall;
 
 global_asm!(include_str!("trap.S"));
@@ -55,11 +54,11 @@ pub fn trap_handler(cx: &mut TrapContext) -> &mut TrapContext {
             }
             EXC_STORE_FAULT | EXC_STORE_PAGE_FAULT => {
                 println!("[kernel] PageFault in application, core dumped.");
-                run_next_app();
+                // run_next_app();
             }
             EXC_ILLEGAL_INSTRUCTION => {
                 println!("[kernel] IllegalInstruction in application, core dumped.");
-                run_next_app();
+                // run_next_app();
             }
             _ => {
                 panic!(
