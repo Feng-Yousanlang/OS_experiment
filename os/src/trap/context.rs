@@ -18,8 +18,10 @@ impl TrapContext {
         unsafe {
             core::arch::asm!("csrr {}, sstatus", out(reg) sstatus);
         }
-        // SPP = 0 表示进入 U 态
+        // SPP = 0：sret 后进入 U 态
         sstatus &= !(1 << 8);
+        // SPIE = 1：sret 回到 U 态时会把 SIE 置 1，用户态才能收到时钟中断
+        sstatus |= 1 << 5;
         let mut cx = Self {
             x: [0; 32],
             sstatus,
