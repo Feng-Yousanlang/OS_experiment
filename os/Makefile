@@ -5,7 +5,7 @@ KERNEL_ELF := target/$(TARGET)/$(MODE)/os
 KERNEL_BIN := $(KERNEL_ELF).bin
 DISASM_TMP := target/$(TARGET)/$(MODE)/asm
 
-# BOARD（老师提供 opensbi.bin 时保持 opensbi）
+# BOARD
 SBI ?= opensbi
 BOOTLOADER := ../bootloader/$(SBI).bin
 
@@ -26,6 +26,7 @@ env:
 	cargo install cargo-binutils
 	rustup component add rust-src
 	rustup component add llvm-tools-preview
+	rustup component add llvm-tools
 
 $(KERNEL_BIN): kernel
 	@$(OBJCOPY) $(KERNEL_ELF) --strip-all -O binary $@

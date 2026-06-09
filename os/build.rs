@@ -39,7 +39,7 @@ _num_app:
     writeln!(f, "    .quad app_{}_end", apps.len() - 1)?;
 
     for (idx, app) in apps.iter().enumerate() {
-        println!("cargo:warning=app_{}: {}", idx, app);
+        println!("app_{}: {}", idx, app);
         writeln!(
             f,
             r#"
@@ -47,7 +47,7 @@ _num_app:
     .global app_{0}_start
     .global app_{0}_end
 app_{0}_start:
-    .incbin "{2}{1}.bin"
+    .incbin "{2}{1}"
 app_{0}_end:"#,
             idx, app, TARGET_PATH
         )?;
