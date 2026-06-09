@@ -1,102 +1,104 @@
 mod context;
 
-use core::arch::global_asm;
+use core::arch::{asm, global_asm};
 
+use crate::config::{TRAMPOLINE, TRAP_CONTEXT};
 use crate::syscall::syscall;
-use crate::task::{exit_current_and_run_next, suspend_current_and_run_next};
+use crate::task::{
+    current_trap_cx, current_user_token, exit_current_and_run_next, suspend_current_and_run_next,
+};
 use crate::timer::set_next_trigger;
+use riscv::register::{
+    mtvec::TrapMode,
+    scause::{self, Exception, Interrupt, Trap},
+    sie,
+    stval,
+    stvec,
+};
 
 global_asm!(include_str!("trap.S"));
 
 pub use context::TrapContext;
 
-const EXC_U_ECALL: usize = 8;
-const EXC_ILLEGAL_INSTRUCTION: usize = 2;
-const EXC_STORE_FAULT: usize = 7;
-const EXC_STORE_PAGE_FAULT: usize = 15;
-const IRQ_S_TIMER: usize = 5;
-
-fn read_scause() -> usize {
-    let scause: usize;
-    unsafe {
-        core::arch::asm!("csrr {}, scause", out(reg) scause);
-    }
-    scause
-}
-
-fn read_stval() -> usize {
-    let stval: usize;
-    unsafe {
-        core::arch::asm!("csrr {}, stval", out(reg) stval);
-    }
-    stval
-}
-
 pub fn init() {
-    extern "C" {
-        fn __alltraps();
-    }
-    let addr = __alltraps as *const () as usize;
+    set_kernel_trap_entry();
+}
+
+fn set_kernel_trap_entry() {
     unsafe {
-        core::arch::asm!("csrw stvec, {}", in(reg) addr);
+        stvec::write(trap_from_kernel as *const () as usize, TrapMode::Direct);
+    }
+}
+
+fn set_user_trap_entry() {
+    unsafe {
+        stvec::write(TRAMPOLINE as *const () as usize, TrapMode::Direct);
     }
 }
 
 pub fn enable_timer_interrupt() {
     unsafe {
-        let mut sie: usize;
-        core::arch::asm!("csrr {}, sie", out(reg) sie);
-        sie |= 1 << 5;
-        core::arch::asm!("csrw sie, {}", in(reg) sie);
+        sie::set_stimer();
     }
 }
 
 #[no_mangle]
-pub fn trap_handler(cx: &mut TrapContext) -> &mut TrapContext {
-    let scause = read_scause();
-    let stval = read_stval();
-    let code = scause & 0xfff;
-    let is_interrupt = (scause >> 63) != 0;
-
-    if is_interrupt {
-        match code {
-            IRQ_S_TIMER => {
-                set_next_trigger();
-                suspend_current_and_run_next();
-            }
-            _ => {
-                panic!(
-                    "Unsupported interrupt scause = {:#x}, stval = {:#x}!",
-                    scause, stval
-                );
-            }
+pub fn trap_handler() -> ! {
+    set_kernel_trap_entry();
+    let cx = current_trap_cx();
+    let scause = scause::read();
+    let stval = stval::read();
+    match scause.cause() {
+        Trap::Exception(Exception::UserEnvCall) => {
+            cx.sepc += 4;
+            cx.x[10] = syscall(cx.x[17], [cx.x[10], cx.x[11], cx.x[12]]) as usize;
         }
-    } else {
-        match code {
-            EXC_U_ECALL => {
-                cx.sepc += 4;
-                cx.x[10] = syscall(cx.x[17], [cx.x[10], cx.x[11], cx.x[12]]) as usize;
-                // 保证每次 syscall 返回 U 态后仍开启 S 级中断（SIE <- SPIE）
-                cx.sstatus |= 1 << 5;
-            }
-            EXC_STORE_FAULT | EXC_STORE_PAGE_FAULT => {
-                println!(
-                    "[kernel] PageFault in application, bad addr = {:#x}, bad instruction = {:#x}, core dumped.",
-                    stval, cx.sepc
-                );
-                exit_current_and_run_next();
-            }
-            EXC_ILLEGAL_INSTRUCTION => {
-                println!("[kernel] IllegalInstruction in application, core dumped.");
-                exit_current_and_run_next();
-            }
-            _ => {
-                panic!(
-                    "Unsupported trap code {:#x}, stval = {:#x}!",
-                    code, stval
-                );
-            }
+        Trap::Exception(Exception::StoreFault) | Trap::Exception(Exception::StorePageFault) => {
+            println!(
+                "[kernel] PageFault in application, bad addr = {:#x}, bad instruction = {:#x}, core dumped.",
+                stval, cx.sepc
+            );
+            exit_current_and_run_next();
+        }
+        Trap::Exception(Exception::IllegalInstruction) => {
+            println!("[kernel] IllegalInstruction in application, core dumped.");
+            exit_current_and_run_next();
+        }
+        Trap::Interrupt(Interrupt::SupervisorTimer) => {
+            set_next_trigger();
+            suspend_current_and_run_next();
+        }
+        _ => {
+            panic!("Unsupported trap {:?}, stval = {:#x}!", scause.cause(), stval);
         }
     }
-    cx
+    trap_return();
+}
+
+#[no_mangle]
+pub fn trap_return() -> ! {
+    set_user_trap_entry();
+    let trap_cx_ptr = TRAP_CONTEXT;
+    let user_satp = current_user_token();
+    extern "C" {
+        fn __alltraps();
+        fn __restore();
+    }
+    let restore_va =
+        __restore as *const () as usize - __alltraps as *const () as usize + TRAMPOLINE;
+    unsafe {
+        asm!(
+            "fence.i",
+            "jr {restore_va}",
+            restore_va = in(reg) restore_va,
+            in("a0") trap_cx_ptr,
+            in("a1") user_satp,
+            options(noreturn)
+        );
+    }
+}
+
+#[no_mangle]
+pub fn trap_from_kernel() -> ! {
+    panic!("a trap from kernel!");
 }

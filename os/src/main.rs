@@ -1,14 +1,19 @@
 #![no_std]
 #![no_main]
+#![feature(alloc_error_handler)]
 
 use core::arch::global_asm;
+
+extern crate alloc;
 
 #[macro_use]
 mod console;
 mod config;
 mod lang_items;
 mod loader;
+mod mm;
 mod sbi;
+mod sync;
 mod syscall;
 mod task;
 mod timer;
@@ -19,10 +24,10 @@ global_asm!(include_str!("link_app.S"));
 
 fn clear_bss() {
     extern "C" {
-        fn sbss();
+        fn sbss_with_stack();
         fn ebss();
     }
-    let sbss_ptr = sbss as *const () as usize;
+    let sbss_ptr = sbss_with_stack as *const () as usize;
     let ebss_ptr = ebss as *const () as usize;
     (sbss_ptr..ebss_ptr).for_each(|a| unsafe { (a as *mut u8).write_volatile(0) });
 }
@@ -31,11 +36,13 @@ fn clear_bss() {
 pub fn rust_main() -> ! {
     clear_bss();
     println!("[kernel] Hello, world!");
+    mm::init();
     trap::init();
+    mm::activate_kernel();
+    println!("[kernel] back to world!");
+    mm::remap_test();
     trap::enable_timer_interrupt();
     timer::set_next_trigger();
-    loader::load_apps();
-    task::init();
     task::run_first_task();
     panic!("Unreachable in rust_main!");
 }
