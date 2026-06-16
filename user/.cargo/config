@@ -1,6 +1,9 @@
 [build]
 target = "riscv64gc-unknown-none-elf"
 
+[registries.crates-io]
+protocol = "git"
+
 [target.riscv64gc-unknown-none-elf]
 rustflags = [
     "-Clink-args=-Tsrc/linker.ld",

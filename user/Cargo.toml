@@ -6,3 +6,6 @@ edition = "2021"
 [lib]
 name = "user_lib"
 crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+buddy_system_allocator = "0.6"
